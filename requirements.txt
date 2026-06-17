@@ -1,0 +1,18 @@
+# ── RPi 5 Runtime Dependencies ──────────────────────────────────────
+# Install on the Pi:  sudo pip install -r requirements.txt
+# (sudo required for rpi_ws281x PWM DMA access)
+
+numpy>=1.24
+sounddevice>=0.4.6
+transformers>=4.40
+onnxruntime>=1.17
+torch>=2.1
+onnx>=1.15
+rpi_ws281x>=5.0
+RPi.GPIO>=0.7
+
+# Optional — only needed for ONNX quantisation (run offline):
+# onnxruntime-tools
+
+# Optional — training only (GPU machine):
+# torchaudio>=2.1
