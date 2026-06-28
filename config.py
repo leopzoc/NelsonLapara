@@ -51,12 +51,12 @@ ONNX_QUANTIZED_PATH = "model/ser_w2v_bert_q8.onnx"
 
 # ── NeoPixel LED Strip (WS2812B) ───────────────────────────────────
 LED_COUNT = 144               # Number of LEDs on the strip
-LED_PIN = 18                  # GPIO 18 (PWM0) — data pin
+LED_PIN = 10                  # GPIO 10 (SPI0 MOSI) — REQUIRED FOR RASPBERRY PI 5!
 LED_BRIGHTNESS = 180          # 0-255 global brightness
 LED_FREQ_HZ = 800_000         # WS2812B signal frequency
-LED_DMA = 10                  # DMA channel (10 avoids conflicts on RPi 5)
+LED_DMA = 10                  # DMA channel (ignored when using SPI)
 LED_INVERT = False            # Invert signal (for level-shifter)
-LED_CHANNEL = 0               # PWM channel (0 for GPIO 18)
+LED_CHANNEL = 0               # PWM channel
 
 # ── GPIO Button (single button cycles modes) ───────────────────────
 BTN_MODE_CYCLE = 17           # GPIO 17 — single button to cycle modes
