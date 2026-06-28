@@ -14,7 +14,8 @@ transformers>=4.40
 onnxruntime>=1.17
 torch>=2.1
 onnx>=1.15
-rpi_ws281x>=5.0
+adafruit-blinka>=8.0
+adafruit-circuitpython-neopixel-spi>=1.0
 RPi.GPIO>=0.7
 
 # ── Training Only (GPU machine, not RPi) ────────────────────────────

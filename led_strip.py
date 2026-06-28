@@ -1,5 +1,5 @@
 """
-LED Strip Driver — WS2812B NeoPixel control via rpi_ws281x.
+LED Strip Driver — WS2812B NeoPixel control via Adafruit SPI.
 
 Provides:
   • Solid color fill
@@ -7,7 +7,9 @@ Provides:
   • Hex-to-RGB conversion
   • Brightness control
 
-Requires: sudo (PWM DMA needs root on RPi)
+Requires: 
+  • SPI enabled on RPi (sudo raspi-config)
+  • GPIO 10 (SPI0 MOSI) connected to NeoPixel Data IN
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ class LedStrip:
     """
     WS2812B NeoPixel strip controller.
 
-    Uses rpi_ws281x library (requires root for PWM DMA).
+    Uses adafruit-circuitpython-neopixel-spi for RPi 5 compatibility.
     All methods are thread-safe; cross-fades run in a background thread.
     """
 
@@ -61,21 +63,22 @@ class LedStrip:
         pin: int = cfg.LED_PIN,
         brightness: int = cfg.LED_BRIGHTNESS,
     ):
-        from rpi_ws281x import PixelStrip, Color
+        import board
+        import neopixel_spi
 
-        self._Color = Color
         self.num_leds = num_leds
+        
+        # Adafruit SPI neopixel uses a float 0.0 - 1.0 for brightness
+        initial_brightness = min(255, max(0, brightness)) / 255.0
 
-        self.strip = PixelStrip(
+        # board.SPI() maps to /dev/spidev0.0 (GPIO 10)
+        self.strip = neopixel_spi.NeoPixel_SPI(
+            board.SPI(),
             num_leds,
-            pin,
-            cfg.LED_FREQ_HZ,
-            cfg.LED_DMA,
-            cfg.LED_INVERT,
-            brightness,
-            cfg.LED_CHANNEL,
+            brightness=initial_brightness,
+            auto_write=False,
+            pixel_order=neopixel_spi.GRB
         )
-        self.strip.begin()
 
         self._current_rgb: Tuple[int, int, int] = (0, 0, 0)
         self._lock = threading.Lock()
@@ -83,8 +86,8 @@ class LedStrip:
         self._fade_cancel = threading.Event()
 
         log.info(
-            "NeoPixel strip initialised: %d LEDs on GPIO %d",
-            num_leds, pin,
+            "NeoPixel SPI strip initialised: %d LEDs on SPI0 (GPIO 10)",
+            num_leds,
         )
 
     # ── immediate set ──────────────────────────────────────────────
@@ -151,16 +154,15 @@ class LedStrip:
 
     def _fill_rgb(self, rgb: Tuple[int, int, int]) -> None:
         with self._lock:
-            color = self._Color(rgb[0], rgb[1], rgb[2])
             for i in range(self.num_leds):
-                self.strip.setPixelColor(i, color)
+                self.strip[i] = rgb
             self.strip.show()
             self._current_rgb = rgb
 
     def set_brightness(self, brightness: int) -> None:
         """Set global brightness (0–255)."""
         with self._lock:
-            self.strip.setBrightness(min(255, max(0, brightness)))
+            self.strip.brightness = min(255, max(0, brightness)) / 255.0
             self.strip.show()
 
     def close(self) -> None:
