@@ -118,10 +118,12 @@ class _TorchBackend:
         self.model.eval()
 
         if quantise:
+            # Set ARM64-compatible quantization engine
+            torch.backends.quantized.engine = "qnnpack"
             self.model = torch.ao.quantization.quantize_dynamic(
                 self.model, {torch.nn.Linear}, dtype=torch.qint8,
             )
-            log.info("PyTorch dynamic INT8 quantisation applied")
+            log.info("PyTorch dynamic INT8 quantisation applied (qnnpack)")
 
     def __call__(self, features: np.ndarray) -> np.ndarray:
         import torch
