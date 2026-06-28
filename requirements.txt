@@ -16,7 +16,7 @@ torch>=2.1
 onnx>=1.15
 adafruit-blinka>=8.0
 adafruit-circuitpython-neopixel-spi>=1.0
-RPi.GPIO>=0.7
+rpi-lgpio>=0.4
 
 # ── Training Only (GPU machine, not RPi) ────────────────────────────
 # pip install torchaudio kagglehub tqdm onnxscript
