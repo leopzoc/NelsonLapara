@@ -163,6 +163,10 @@ class AudioStreamer:
 
     def record_fixed(self, duration_sec: float) -> np.ndarray:
         """Synchronous single-shot recording of *duration_sec* seconds."""
+        was_running = self._running
+        if was_running:
+            self.stop()
+
         n_samples = int(duration_sec * self.capture_sr)
         audio = sd.rec(
             n_samples,
@@ -171,4 +175,8 @@ class AudioStreamer:
             dtype=cfg.DTYPE,
         )
         sd.wait()
+
+        if was_running:
+            self.start()
+
         return self._resample(audio.flatten())
