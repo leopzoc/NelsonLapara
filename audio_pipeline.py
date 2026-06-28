@@ -16,6 +16,8 @@ from typing import Optional
 
 import numpy as np
 import sounddevice as sd
+import scipy.signal
+import math
 
 import config as cfg
 
@@ -73,9 +75,28 @@ class AudioStreamer:
         sr: int = cfg.SAMPLE_RATE,
         channels: int = cfg.CHANNELS,
     ):
-        self.sr = sr
+        self.target_sr = sr
         self.channels = channels
-        self.window_samples = int(window_sec * sr)
+        
+        # Discover hardware supported sample rate to prevent PaErrorCode -9997
+        self.capture_sr = sr
+        try:
+            sd.check_input_settings(samplerate=self.capture_sr, channels=self.channels)
+        except Exception:
+            try:
+                sd.check_input_settings(samplerate=48000, channels=self.channels)
+                self.capture_sr = 48000
+            except Exception:
+                self.capture_sr = 44100  # Ultimate fallback
+                
+        if self.capture_sr != self.target_sr:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Hardware doesn't support %d Hz. Capturing at %d Hz and resampling in software.",
+                self.target_sr, self.capture_sr
+            )
+
+        self.window_samples = int(window_sec * self.capture_sr)
         self._buffer: np.ndarray = np.zeros(self.window_samples, dtype=np.float32)
         self._write_pos = 0
         self._ready = threading.Event()
@@ -107,7 +128,7 @@ class AudioStreamer:
             return
         self._running = True
         self._stream = sd.InputStream(
-            samplerate=self.sr,
+            samplerate=self.capture_sr,
             channels=self.channels,
             dtype=cfg.DTYPE,
             callback=self._audio_callback,
@@ -122,21 +143,32 @@ class AudioStreamer:
             self._stream.close()
             self._stream = None
 
+    def _resample(self, audio: np.ndarray) -> np.ndarray:
+        if self.capture_sr == self.target_sr:
+            return audio
+        gcd = math.gcd(self.capture_sr, self.target_sr)
+        up = self.target_sr // gcd
+        down = self.capture_sr // gcd
+        return scipy.signal.resample_poly(audio, up, down).astype(np.float32)
+
     def get_chunk(self, timeout: float = 10.0) -> Optional[np.ndarray]:
         """Block until a full window is captured. Returns None on timeout."""
         if self._ready.wait(timeout=timeout):
             self._ready.clear()
-            return self._chunks.pop() if self._chunks else None
+            if not self._chunks:
+                return None
+            audio = self._chunks.pop()
+            return self._resample(audio)
         return None
 
     def record_fixed(self, duration_sec: float) -> np.ndarray:
         """Synchronous single-shot recording of *duration_sec* seconds."""
-        n_samples = int(duration_sec * self.sr)
+        n_samples = int(duration_sec * self.capture_sr)
         audio = sd.rec(
             n_samples,
-            samplerate=self.sr,
+            samplerate=self.capture_sr,
             channels=self.channels,
             dtype=cfg.DTYPE,
         )
         sd.wait()
-        return audio.flatten()
+        return self._resample(audio.flatten())
