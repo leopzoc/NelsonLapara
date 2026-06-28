@@ -59,6 +59,7 @@ def export_to_onnx(
             "logits": {0: "batch"},
         },
         opset_version=17,
+        dynamo=False,
     )
     log.info("ONNX model exported → %s", out_path)
 

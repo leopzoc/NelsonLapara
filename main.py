@@ -3,15 +3,15 @@ Main Orchestrator — Closed-Loop Adaptive Emotional Intervention.
 
 Runs on RPi 5.  Hardware:
   • WS2812B NeoPixel strip (144 LED) on GPIO 18
-  • 3 physical buttons: GPIO 17 (Therapeutic), GPIO 27 (Avion), GPIO 22 (Circadian)
+  • 1 physical button: GPIO 17 (cycles modes: Therapeutic → Avion → Circadian)
   • USB microphone
 
 Architecture:
 
     ┌───────────┐     ┌───────────┐     ┌──────────────────┐
-    │  Buttons  │────▶│   Main    │────▶│  Active Mode     │
-    │ GPIO 17/  │     │  Orchest. │     │  ┌─ Therapeutic   │
-    │  27 / 22  │     │           │     │  ├─ Avion         │
+    │  Button   │────▶│   Main    │────▶│  Active Mode     │
+    │  GPIO 17  │     │  Orchest. │     │  ┌─ Therapeutic   │
+    │ (cycle)   │     │           │     │  ├─ Avion         │
     └───────────┘     └─────┬─────┘     │  └─ Circadian    │
                             │           └────────┬─────────┘
     ┌───────────┐     ┌─────▼─────┐              │
@@ -81,8 +81,11 @@ class InterventionSystem:
         self.avion = AvionMode(self.led)
         self.circadian = CircadianMode(self.led)
 
-        # ── Buttons ─────────────────────────────────────────────────
-        self.buttons = ButtonController(on_mode_change=self._on_mode_change)
+        # ── Button (single, cycles modes) ────────────────────────
+        self.buttons = ButtonController(
+            on_mode_change=self._on_mode_change,
+            led_strip=self.led,
+        )
 
         # ── State ───────────────────────────────────────────────────
         self._active_mode: Mode = Mode.THERAPEUTIC

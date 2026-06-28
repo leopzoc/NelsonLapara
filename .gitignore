@@ -1,21 +1,39 @@
-# Virtual Environment
+# ── Virtual Environments ────────────────────────────────────────────
 venv/
+venv_onix/
 env/
 .env
 
-# Python Cache
+# ── Python Cache ────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
 
-# Models and Checkpoints
+# ── Models and Checkpoints (too large for GitHub) ──────────────────
 model/
 *.onnx
+*.safetensors
 
-# Dataset
+# ── Dataset ─────────────────────────────────────────────────────────
 TESS/
 toronto-emotional-speech-set-tess.zip
+*.wav
 
-# IDEs
+# ── IDEs ────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# ── OS Files ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Git LFS ─────────────────────────────────────────────────────────
+.gitattributes
