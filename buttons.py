@@ -1,9 +1,16 @@
 """
-GPIO Button Controller — single button cycles through modes.
+GPIO Button Controller — multi-button system.
 
-Uses RPi.GPIO with interrupt-driven callback and software debounce.
-A single press on the button cycles:  THERAPEUTIC → AVION → CIRCADIAN → ...
-After each press the LED strip briefly flashes the mode's colour
+Uses RPi.GPIO with interrupt-driven callbacks and software debounce.
+
+Buttons:
+  • GPIO 17 — Mode cycle: THERAPEUTIC → AVION → CIRCADIAN → AUTISM → ...
+  • GPIO  5 — Lamp toggle: turn LED strip on/off
+  • GPIO  6 — Play/Stop:  toggle audio playback
+  • GPIO 13 — Volume Up:  increase audio volume
+  • GPIO 19 — Volume Down: decrease audio volume
+
+After each mode press the LED strip briefly flashes the mode's colour
 (1 second) to give visual feedback, then the new mode starts.
 """
 
@@ -24,16 +31,26 @@ class Mode(Enum):
     THERAPEUTIC = auto()    # SER + hill-climbing intervention
     AVION = auto()          # Boeing 737 cabin lighting
     CIRCADIAN = auto()      # Daylight rhythm cycle
+    AUTISM = auto()         # Neuro-relaxation sensory lighting
 
 
 # Ordered cycle list — the button rotates through these
-_MODE_CYCLE = [Mode.THERAPEUTIC, Mode.AVION, Mode.CIRCADIAN]
+_MODE_CYCLE = [Mode.THERAPEUTIC, Mode.AVION, Mode.CIRCADIAN, Mode.AUTISM]
 
 # Feedback colour shown for 1 second when switching to each mode
 MODE_FEEDBACK_COLORS = {
     Mode.THERAPEUTIC: cfg.MODE_COLOR_THERAPEUTIC,   # green
     Mode.AVION:       cfg.MODE_COLOR_AVION,         # violet
     Mode.CIRCADIAN:   cfg.MODE_COLOR_CIRCADIAN,     # orange
+    Mode.AUTISM:      cfg.MODE_COLOR_AUTISM,         # soft blue
+}
+
+# Map modes to their audio tracks (None = no audio for that mode)
+MODE_AUDIO_TRACKS = {
+    Mode.THERAPEUTIC: None,
+    Mode.AVION:       cfg.AUDIO_TRACK_AVION,
+    Mode.CIRCADIAN:   cfg.AUDIO_TRACK_CIRCADIAN,
+    Mode.AUTISM:      cfg.AUDIO_TRACK_AUTISM,
 }
 
 FEEDBACK_DURATION_SEC = 1.0
@@ -41,12 +58,15 @@ FEEDBACK_DURATION_SEC = 1.0
 
 class ButtonController:
     """
-    Interrupt-driven GPIO button handler (single button).
+    Interrupt-driven GPIO button handler (7 buttons).
 
-    When the button is pressed the mode advances to the next one in the
-    cycle and the ``on_mode_change`` callback is called with the new
-    `Mode`.  An optional ``led_strip`` reference is used to flash the
-    mode colour for visual feedback.
+    Buttons:
+      • Mode cycle (GPIO 17): advances to the next mode and fires
+        ``on_mode_change`` callback.
+      • Lamp toggle (GPIO 5): fires ``on_lamp_toggle`` callback.
+      • Play/Stop (GPIO 6): fires ``on_play_stop`` callback.
+      • Volume Up (GPIO 13): fires ``on_volume_up`` callback.
+      • Volume Down (GPIO 19): fires ``on_volume_down`` callback.
 
     Thread-safe; debounced.
     """
@@ -54,32 +74,50 @@ class ButtonController:
     def __init__(
         self,
         on_mode_change: Optional[Callable[[Mode], None]] = None,
+        on_lamp_toggle: Optional[Callable[[], None]] = None,
+        on_play_stop: Optional[Callable[[], None]] = None,
+        on_volume_up: Optional[Callable[[], None]] = None,
+        on_volume_down: Optional[Callable[[], None]] = None,
         led_strip=None,
     ):
         import RPi.GPIO as GPIO
 
         self._GPIO = GPIO
-        self._callback = on_mode_change
+        self._cb_mode_change = on_mode_change
+        self._cb_lamp_toggle = on_lamp_toggle
+        self._cb_play_stop = on_play_stop
+        self._cb_volume_up = on_volume_up
+        self._cb_volume_down = on_volume_down
         self._led = led_strip
         self._current_mode: Mode = Mode.THERAPEUTIC
         self._lock = threading.Lock()
-        self._last_press_time: float = 0.0
+        self._last_press_times: dict[int, float] = {}
 
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
-        # Only one button — uses the THERAPEUTIC pin (GPIO 17)
-        pin = cfg.BTN_MODE_CYCLE
-        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.add_event_detect(
-            pin,
-            GPIO.FALLING,
-            callback=self._on_button_press,
-            bouncetime=cfg.BTN_DEBOUNCE_MS,
-        )
+        # ── Setup all buttons ──────────────────────────────────────
+        buttons = {
+            cfg.BTN_MODE_CYCLE: self._on_mode_press,
+            cfg.BTN_LAMP_TOGGLE: self._on_lamp_press,
+            cfg.BTN_PLAY_STOP: self._on_play_stop_press,
+            cfg.BTN_VOL_UP: self._on_vol_up_press,
+            cfg.BTN_VOL_DOWN: self._on_vol_down_press,
+        }
+
+        for pin, callback in buttons.items():
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.add_event_detect(
+                pin,
+                GPIO.FALLING,
+                callback=callback,
+                bouncetime=cfg.BTN_DEBOUNCE_MS,
+            )
+            log.info("Button registered on GPIO %d", pin)
+
         log.info(
-            "Single-button controller ready on GPIO %d — default mode: %s",
-            pin, self._current_mode.name,
+            "ButtonController ready — 5 buttons, default mode: %s",
+            self._current_mode.name,
         )
 
     @property
@@ -87,15 +125,25 @@ class ButtonController:
         with self._lock:
             return self._current_mode
 
-    def _on_button_press(self, channel: int):
+    # ── Debounce helper ────────────────────────────────────────────
+
+    def _debounced(self, channel: int) -> bool:
+        """Returns True if the press should be ignored (too recent)."""
         now = time.monotonic()
         with self._lock:
-            # Extra debounce guard
-            if now - self._last_press_time < cfg.BTN_DEBOUNCE_MS / 1000.0:
-                return
-            self._last_press_time = now
+            last = self._last_press_times.get(channel, 0.0)
+            if now - last < cfg.BTN_DEBOUNCE_MS / 1000.0:
+                return True
+            self._last_press_times[channel] = now
+        return False
 
-            # Advance to the next mode in the cycle
+    # ── Mode cycle button (GPIO 17) ────────────────────────────────
+
+    def _on_mode_press(self, channel: int):
+        if self._debounced(channel):
+            return
+
+        with self._lock:
             idx = _MODE_CYCLE.index(self._current_mode)
             new_mode = _MODE_CYCLE[(idx + 1) % len(_MODE_CYCLE)]
             old_mode = self._current_mode
@@ -109,9 +157,46 @@ class ButtonController:
         # Visual feedback: flash the mode colour for 1 second
         self._flash_feedback(new_mode)
 
-        if self._callback:
-            # Fire callback outside the lock
-            self._callback(new_mode)
+        if self._cb_mode_change:
+            self._cb_mode_change(new_mode)
+
+    # ── Lamp toggle button (GPIO 5) ────────────────────────────────
+
+    def _on_lamp_press(self, channel: int):
+        if self._debounced(channel):
+            return
+        log.info("Lamp toggle pressed (GPIO %d)", channel)
+        if self._cb_lamp_toggle:
+            self._cb_lamp_toggle()
+
+    # ── Play/Stop button (GPIO 6) ──────────────────────────────────
+
+    def _on_play_stop_press(self, channel: int):
+        if self._debounced(channel):
+            return
+        log.info("Play/Stop pressed (GPIO %d)", channel)
+        if self._cb_play_stop:
+            self._cb_play_stop()
+
+    # ── Volume Up button (GPIO 13) ─────────────────────────────────
+
+    def _on_vol_up_press(self, channel: int):
+        if self._debounced(channel):
+            return
+        log.info("Volume UP pressed (GPIO %d)", channel)
+        if self._cb_volume_up:
+            self._cb_volume_up()
+
+    # ── Volume Down button (GPIO 19) ───────────────────────────────
+
+    def _on_vol_down_press(self, channel: int):
+        if self._debounced(channel):
+            return
+        log.info("Volume DOWN pressed (GPIO %d)", channel)
+        if self._cb_volume_down:
+            self._cb_volume_down()
+
+    # ── Visual feedback ────────────────────────────────────────────
 
     def _flash_feedback(self, mode: Mode):
         """Flash the LED strip with the mode's colour for 1 second."""

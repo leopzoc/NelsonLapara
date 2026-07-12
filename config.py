@@ -1,8 +1,13 @@
 """
 Closed-Loop Adaptive Emotional Intervention — Configuration
 Target: Raspberry Pi 5 (ARM64, 8GB)
-Hardware: WS2812B NeoPixel strip (144 LED) + 3 GPIO buttons
+Hardware: WS2812B NeoPixel strip (144 LED) + 7 GPIO buttons + USB mic + audio output
 """
+
+import os
+
+# ── Project root (for resolving MP3 paths) ──────────────────────────
+_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ── Audio Pipeline ──────────────────────────────────────────────────
 SAMPLE_RATE = 16_000          # Wav2Vec2-BERT expects 16 kHz
@@ -58,14 +63,41 @@ LED_DMA = 10                  # DMA channel (ignored when using SPI)
 LED_INVERT = False            # Invert signal (for level-shifter)
 LED_CHANNEL = 0               # PWM channel
 
-# ── GPIO Button (single button cycles modes) ───────────────────────
-BTN_MODE_CYCLE = 17           # GPIO 17 — single button to cycle modes
+# Active LED zones — only these LEDs are driven (middle ones skipped)
+LED_ACTIVE_HEAD = 22          # First N LEDs to use (indices 0..21)
+LED_ACTIVE_TAIL = 22          # Last N LEDs to use (indices 122..143)
+
+# ── GPIO Buttons ────────────────────────────────────────────────────
+BTN_MODE_CYCLE = 17           # GPIO 17 — cycles modes: Therapeutic → Avion → Circadian → Autism
+BTN_LAMP_TOGGLE = 5           # GPIO 5  — turn lamp (LED strip) on/off
+BTN_PLAY_STOP = 6             # GPIO 6  — play/pause audio track
+BTN_VOL_UP = 13               # GPIO 13 — volume up
+BTN_VOL_DOWN = 19              # GPIO 19 — volume down
 BTN_DEBOUNCE_MS = 300         # Debounce time in milliseconds
 
 # Feedback colours — LED flash for 1 s when switching mode
 MODE_COLOR_THERAPEUTIC = "#00FF66"   # Bright green  → Terapeutica
 MODE_COLOR_AVION       = "#C4A8FF"   # Soft violet   → Avion
 MODE_COLOR_CIRCADIAN   = "#FF8C42"   # Warm orange   → Circadiano
+MODE_COLOR_AUTISM      = "#4FC3F7"   # Soft blue     → Autismo
+
+# ── Audio Player ────────────────────────────────────────────────────
+AUDIO_DEFAULT_VOLUME = 0.5    # 0.0 – 1.0 (50%)
+AUDIO_VOLUME_STEP = 0.10      # Volume increment/decrement per button press
+
+# MP3 tracks per mode (only modes with audio)
+AUDIO_TRACK_AVION = os.path.join(
+    _PROJECT_DIR,
+    "Sonido de CABINA DE AVIÓN Pantalla Negra Para Dormir ✈️ [ASMR Ruido Blanco] 10 Horas [U7D7tJJe0IY].mp3",
+)
+AUDIO_TRACK_CIRCADIAN = os.path.join(
+    _PROJECT_DIR,
+    "White Noise Puro (Ruido Blanco) 12 horas continuas [hSERj4HYyxg].mp3",
+)
+AUDIO_TRACK_AUTISM = os.path.join(
+    _PROJECT_DIR,
+    "🔵 Musicoterapia para AUTISMO, ASPERGER ｜►【Neuro-Relajación Profunda】Terapia Sensorial Relajante [tN9vJnGyHEc].mp3",
+)
 
 # ── Color Mitigation (Hill-Climbing) — Therapeutic Mode ────────────
 # Base palette – calming greens, ordered full-sat → desaturated

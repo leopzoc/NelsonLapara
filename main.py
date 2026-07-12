@@ -2,23 +2,40 @@
 Main Orchestrator — Closed-Loop Adaptive Emotional Intervention.
 
 Runs on RPi 5.  Hardware:
-  • WS2812B NeoPixel strip (144 LED) on GPIO 18
-  • 1 physical button: GPIO 17 (cycles modes: Therapeutic → Avion → Circadian)
+  • WS2812B NeoPixel strip (144 LED) on SPI0 (GPIO 10)
+  • 5 physical buttons:
+      - GPIO 17: cycle modes (Therapeutic → Avion → Circadian → Autism)
+      - GPIO  5: lamp on/off (LED strip toggle)
+      - GPIO  6: play/pause audio track
+      - GPIO 13: volume up
+      - GPIO 19: volume down
   • USB microphone
+  • Audio output (speaker / 3.5mm jack)
 
 Architecture:
 
     ┌───────────┐     ┌───────────┐     ┌──────────────────┐
-    │  Button   │────▶│   Main    │────▶│  Active Mode     │
-    │  GPIO 17  │     │  Orchest. │     │  ┌─ Therapeutic   │
-    │ (cycle)   │     │           │     │  ├─ Avion         │
-    └───────────┘     └─────┬─────┘     │  └─ Circadian    │
+    │  Buttons  │────▶│   Main    │────▶│  Active Mode     │
+    │  GPIO     │     │  Orchest. │     │  ┌─ Therapeutic   │
+    │ 17,5,6,   │     │           │     │  ├─ Avion         │
+    │ 13,19     │     │           │     │  ├─ Circadian     │
+    └───────────┘     └─────┬─────┘     │  └─ Autism (SER)  │
                             │           └────────┬─────────┘
     ┌───────────┐     ┌─────▼─────┐              │
     │    Mic    │────▶│ SER Engine│     ┌────────▼─────────┐
     │ (stream)  │     │ (Wav2Vec2)│     │  NeoPixel Strip  │
     └───────────┘     └───────────┘     │  (144 WS2812B)   │
                                         └──────────────────┘
+    ┌──────────────────────────────┐
+    │  AudioPlayer (pygame.mixer)  │
+    │  Per-mode MP3 tracks         │
+    └──────────────────────────────┘
+
+Modes:
+  • Therapeutic: SER + hill-climbing color mitigation (no audio)
+  • Avion:       Boeing 737 cabin lighting cycle + cabin ambience audio
+  • Circadian:   Daylight rhythm LED cycle + white noise audio
+  • Autism:      SER + hill-climbing color mitigation + neuro-relaxation audio
 """
 
 from __future__ import annotations
@@ -33,9 +50,10 @@ from audio_pipeline import AudioStreamer, has_speech, rms, rms_to_db
 from ser_engine import SEREngine
 from color_mitigation import ColorMitigation
 from led_strip import LedStrip
-from buttons import ButtonController, Mode
+from buttons import ButtonController, Mode, MODE_AUDIO_TRACKS
 from mode_avion import AvionMode
 from mode_circadian import CircadianMode
+from audio_player import AudioPlayer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +73,9 @@ class TherapeuticState(Enum):
 
 COOLDOWN_SEC = 15.0
 
+# Modes that use the SER + ColorMitigation pipeline
+_SER_MODES = {Mode.THERAPEUTIC, Mode.AUTISM}
+
 
 # ── Main System ────────────────────────────────────────────────────
 
@@ -63,9 +84,10 @@ class InterventionSystem:
     Central orchestrator.
 
     Manages mode switching (button-driven) and delegates to:
-      • Therapeutic mode — SER + hill-climbing on the LED strip
-      • Avion mode       — Boeing 737 cabin lighting cycle
-      • Circadian mode   — Daylight rhythm LED cycle
+      • Therapeutic mode — SER + hill-climbing on the LED strip (no audio)
+      • Avion mode       — Boeing 737 cabin lighting cycle + audio
+      • Circadian mode   — Daylight rhythm LED cycle + audio
+      • Autism mode      — SER + hill-climbing on the LED strip + audio
     """
 
     def __init__(self):
@@ -74,6 +96,7 @@ class InterventionSystem:
         # ── Hardware ────────────────────────────────────────────────
         self.led = LedStrip()
         self.streamer = AudioStreamer()
+        self.audio = AudioPlayer()
 
         # ── Modes ───────────────────────────────────────────────────
         self.ser = SEREngine()
@@ -81,9 +104,13 @@ class InterventionSystem:
         self.avion = AvionMode(self.led)
         self.circadian = CircadianMode(self.led)
 
-        # ── Button (single, cycles modes) ────────────────────────
+        # ── Buttons (5 buttons) ────────────────────────────────────
         self.buttons = ButtonController(
             on_mode_change=self._on_mode_change,
+            on_lamp_toggle=self._on_lamp_toggle,
+            on_play_stop=self._on_play_stop,
+            on_volume_up=self._on_volume_up,
+            on_volume_down=self._on_volume_down,
             led_strip=self.led,
         )
 
@@ -92,6 +119,7 @@ class InterventionSystem:
         self._therapeutic_state = TherapeuticState.LISTENING
         self._cooldown_until = 0.0
         self._running = False
+        self._lamp_on = True   # LED strip starts ON
 
     # ── Mode switching ─────────────────────────────────────────────
 
@@ -108,18 +136,76 @@ class InterventionSystem:
         self.circadian.stop()
         self.mitigation.reset()
         self._therapeutic_state = TherapeuticState.LISTENING
+        # Audio is stopped and restarted per-mode in _start_mode
 
     def _start_mode(self, mode: Mode):
+        # ── Start the audio track for this mode ────────────────────
+        # Audio always plays (even at volume 0) — it reproduces
+        # independently of the mute state.
+        track = MODE_AUDIO_TRACKS.get(mode)
+        if track:
+            self.audio.play_track(track, loops=-1)
+            log.info("♪ Audio track started for %s", mode.name)
+        else:
+            self.audio.stop()
+            log.info("♪ No audio for %s — stopped", mode.name)
+
+        # ── Start the LED mode ─────────────────────────────────────
         match mode:
             case Mode.THERAPEUTIC:
-                log.info("▶ Therapeutic mode — listening for emotional arousal")
-                self.led.set_color("#000000")   # LEDs off until triggered
+                log.info("▶ Therapeutic mode — SER + color mitigation")
+                if self._lamp_on:
+                    self.led.set_color("#000000")   # LEDs off until triggered
             case Mode.AVION:
                 log.info("▶ Avion mode — Boeing 737 cabin lighting")
                 self.avion.start()
             case Mode.CIRCADIAN:
                 log.info("▶ Circadian mode — daylight rhythm cycle")
                 self.circadian.start()
+            case Mode.AUTISM:
+                log.info("▶ Autism mode — SER + color mitigation + audio")
+                if self._lamp_on:
+                    self.led.set_color("#000000")   # LEDs off until triggered
+
+    # ── Lamp toggle ────────────────────────────────────────────────
+
+    def _on_lamp_toggle(self):
+        """Toggle the LED strip on/off."""
+        self._lamp_on = not self._lamp_on
+        if self._lamp_on:
+            log.info("💡 Lamp ON")
+            # Re-enter the current mode to restore LED behavior
+            self._start_mode_leds_only(self._active_mode)
+        else:
+            log.info("💡 Lamp OFF")
+            self.led.off()
+
+    def _start_mode_leds_only(self, mode: Mode):
+        """Restart LED behavior for the current mode (without touching audio)."""
+        match mode:
+            case Mode.THERAPEUTIC | Mode.AUTISM:
+                self.led.set_color("#000000")  # Will light up on SER trigger
+            case Mode.AVION:
+                # Avion thread is already running, just needs to continue
+                if not self.avion.running:
+                    self.avion.start()
+            case Mode.CIRCADIAN:
+                if not self.circadian.running:
+                    self.circadian.start()
+
+    # ── Audio controls ─────────────────────────────────────────────
+
+    def _on_play_stop(self):
+        """Toggle play/pause on the current audio track."""
+        self.audio.toggle_play_pause()
+
+    def _on_volume_up(self):
+        """Increase audio volume."""
+        self.audio.volume_up()
+
+    def _on_volume_down(self):
+        """Decrease audio volume."""
+        self.audio.volume_down()
 
     # ── Main loop ──────────────────────────────────────────────────
 
@@ -134,7 +220,7 @@ class InterventionSystem:
 
         try:
             while self._running:
-                if self._active_mode == Mode.THERAPEUTIC:
+                if self._active_mode in _SER_MODES:
                     self._therapeutic_tick()
                 else:
                     # Avion and Circadian run in their own threads;
@@ -147,6 +233,7 @@ class InterventionSystem:
         log.info("Shutting down …")
         self._running = False
         self._stop_current_mode()
+        self.audio.close()
         self.streamer.stop()
         self.led.close()
         self.buttons.close()
@@ -155,7 +242,7 @@ class InterventionSystem:
         log.info("Signal %s received", sig)
         self._running = False
 
-    # ── THERAPEUTIC mode ticks ─────────────────────────────────────
+    # ── THERAPEUTIC / AUTISM mode ticks (SER + ColorMitigation) ────
 
     def _therapeutic_tick(self):
         match self._therapeutic_state:
@@ -172,7 +259,7 @@ class InterventionSystem:
             return
 
         # Check if mode changed during wait
-        if self._active_mode != Mode.THERAPEUTIC:
+        if self._active_mode not in _SER_MODES:
             return
 
         if not has_speech(chunk):
@@ -190,14 +277,15 @@ class InterventionSystem:
             self._therapeutic_state = TherapeuticState.MITIGATING
 
     def _mitigate_tick(self):
-        if self._active_mode != Mode.THERAPEUTIC:
+        if self._active_mode not in _SER_MODES:
             return
 
         action = self.mitigation.tick()
 
         match action["action"]:
             case "show_color":
-                self.led.set_color(action["color"])
+                if self._lamp_on:
+                    self.led.set_color(action["color"])
                 log.info("LED strip → %s", action["color"])
 
             case "record":
@@ -207,7 +295,7 @@ class InterventionSystem:
 
             case "wait_then_record":
                 time.sleep(action["wait"])
-                if self._active_mode != Mode.THERAPEUTIC:
+                if self._active_mode not in _SER_MODES:
                     return
                 audio = self.streamer.record_fixed(action["duration"])
                 db = rms_to_db(rms(audio))
@@ -225,10 +313,12 @@ class InterventionSystem:
             case "continue":
                 log.info("✓ dB improved — continuing desaturation")
             case "rollback":
-                self.led.set_color(result["color"])
+                if self._lamp_on:
+                    self.led.set_color(result["color"])
                 log.info("↩ Rolled back → %s", result["color"])
             case "converged":
-                self.led.set_color(result["color"])
+                if self._lamp_on:
+                    self.led.set_color(result["color"])
                 log.info("● Converged at %s", result["color"])
                 self._enter_cooldown()
 
@@ -243,7 +333,8 @@ class InterventionSystem:
     def _cooldown_tick(self):
         if time.monotonic() >= self._cooldown_until:
             log.info("Cooldown complete — resuming listening")
-            self.led.off()
+            if self._lamp_on:
+                self.led.off()
             self._therapeutic_state = TherapeuticState.LISTENING
         else:
             time.sleep(0.5)

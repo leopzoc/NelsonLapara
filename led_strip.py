@@ -2,10 +2,13 @@
 LED Strip Driver — WS2812B NeoPixel control via Adafruit SPI.
 
 Provides:
-  • Solid color fill
+  • Solid color fill (active zones only: first N + last N LEDs)
   • Smooth cross-fade transitions
   • Hex-to-RGB conversion
   • Brightness control
+
+Only the first LED_ACTIVE_HEAD and last LED_ACTIVE_TAIL LEDs are driven.
+Middle LEDs are kept off to avoid hardware issues.
 
 Requires: 
   • SPI enabled on RPi (sudo raspi-config)
@@ -80,14 +83,23 @@ class LedStrip:
             pixel_order=neopixel_spi.GRB
         )
 
+        # ── Active LED zones ───────────────────────────────────────
+        # Only drive the first N and last N LEDs; middle stays off.
+        head = min(cfg.LED_ACTIVE_HEAD, num_leds)
+        tail = min(cfg.LED_ACTIVE_TAIL, num_leds)
+        tail_start = max(num_leds - tail, head)  # avoid overlap
+        self._active_indices = list(range(0, head)) + list(range(tail_start, num_leds))
+        self._inactive_indices = list(range(head, tail_start))  # middle LEDs always off
+
         self._current_rgb: Tuple[int, int, int] = (0, 0, 0)
         self._lock = threading.Lock()
         self._fade_thread: Optional[threading.Thread] = None
         self._fade_cancel = threading.Event()
 
         log.info(
-            "NeoPixel SPI strip initialised: %d LEDs on SPI0 (GPIO 10)",
-            num_leds,
+            "NeoPixel SPI strip initialised: %d LEDs on SPI0 (GPIO 10), "
+            "active zones: first %d + last %d = %d LEDs",
+            num_leds, head, tail, len(self._active_indices),
         )
 
     # ── immediate set ──────────────────────────────────────────────
@@ -153,9 +165,12 @@ class LedStrip:
     # ── low-level ──────────────────────────────────────────────────
 
     def _fill_rgb(self, rgb: Tuple[int, int, int]) -> None:
+        """Fill only the active LED zones with *rgb*; middle stays off."""
         with self._lock:
-            for i in range(self.num_leds):
+            for i in self._active_indices:
                 self.strip[i] = rgb
+            for i in self._inactive_indices:
+                self.strip[i] = (0, 0, 0)
             self.strip.show()
             self._current_rgb = rgb
 
