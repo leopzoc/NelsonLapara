@@ -18,6 +18,9 @@ import numpy as np
 import sounddevice as sd
 import scipy.signal
 import math
+import logging
+
+log = logging.getLogger(__name__)
 
 import config as cfg
 
