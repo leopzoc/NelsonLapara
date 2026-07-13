@@ -83,13 +83,15 @@ class LedStrip:
             pixel_order=neopixel_spi.GRB
         )
 
-        # ── Active LED zones ───────────────────────────────────────
-        # Only drive the first N and last N LEDs; middle stays off.
-        head = min(cfg.LED_ACTIVE_HEAD, num_leds)
-        tail = min(cfg.LED_ACTIVE_TAIL, num_leds)
-        tail_start = max(num_leds - tail, head)  # avoid overlap
-        self._active_indices = list(range(0, head)) + list(range(tail_start, num_leds))
-        self._inactive_indices = list(range(head, tail_start))  # middle LEDs always off
+        # ── Skip zone ──────────────────────────────────────────────
+        # LEDs in the skip range are kept off; all others are active.
+        skip_start = cfg.LED_SKIP_START
+        skip_end = cfg.LED_SKIP_END
+        self._active_indices = [
+            i for i in range(num_leds)
+            if not (skip_start <= i <= skip_end)
+        ]
+        self._inactive_indices = list(range(skip_start, skip_end + 1))
 
         self._current_rgb: Tuple[int, int, int] = (0, 0, 0)
         self._lock = threading.Lock()
@@ -98,8 +100,9 @@ class LedStrip:
 
         log.info(
             "NeoPixel SPI strip initialised: %d LEDs on SPI0 (GPIO 10), "
-            "active zones: first %d + last %d = %d LEDs",
-            num_leds, head, tail, len(self._active_indices),
+            "skip zone: %d–%d (%d off), %d active",
+            num_leds, skip_start, skip_end,
+            len(self._inactive_indices), len(self._active_indices),
         )
 
     # ── immediate set ──────────────────────────────────────────────

@@ -63,9 +63,10 @@ LED_DMA = 10                  # DMA channel (ignored when using SPI)
 LED_INVERT = False            # Invert signal (for level-shifter)
 LED_CHANNEL = 0               # PWM channel
 
-# Active LED zones — only these LEDs are driven (middle ones skipped)
-LED_ACTIVE_HEAD = 22          # First N LEDs to use (indices 0..21)
-LED_ACTIVE_TAIL = 22          # Last N LEDs to use (indices 122..143)
+# Dead LED zone — these LEDs are skipped (kept off)
+LED_SKIP_START = 22           # First LED to skip (inclusive)
+LED_SKIP_END = 38             # Last LED to skip (inclusive)
+                              # → LEDs 22..38 always off, all others active
 
 # ── GPIO Buttons ────────────────────────────────────────────────────
 BTN_MODE_CYCLE = 17           # GPIO 17 — cycles modes: Therapeutic → Avion → Circadian → Autism
