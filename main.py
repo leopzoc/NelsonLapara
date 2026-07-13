@@ -72,6 +72,7 @@ class TherapeuticState(Enum):
 
 
 COOLDOWN_SEC = 15.0
+MODE_FADE_SEC = 1.5   # Fade-out / fade-in duration on mode switch
 
 # Modes that use the SER + ColorMitigation pipeline
 _SER_MODES = {Mode.THERAPEUTIC, Mode.AUTISM}
@@ -132,6 +133,10 @@ class InterventionSystem:
 
     def _stop_current_mode(self):
         """Cleanly stop whichever mode is currently running."""
+        # Fade out LED strip smoothly before stopping
+        if self._lamp_on:
+            self.led.fade_to("#000000", duration_sec=MODE_FADE_SEC)
+            time.sleep(MODE_FADE_SEC)
         self.avion.stop()
         self.circadian.stop()
         self.mitigation.reset()
@@ -144,18 +149,17 @@ class InterventionSystem:
         # independently of the mute state.
         track = MODE_AUDIO_TRACKS.get(mode)
         if track:
-            self.audio.play_track(track, loops=-1)
+            self.audio.play_track(track)
             log.info("♪ Audio track started for %s", mode.name)
         else:
             self.audio.stop()
             log.info("♪ No audio for %s — stopped", mode.name)
 
-        # ── Start the LED mode ─────────────────────────────────────
+        # ── Start the LED mode (with smooth fade-in) ───────────────
         match mode:
             case Mode.THERAPEUTIC:
                 log.info("▶ Therapeutic mode — SER + color mitigation")
-                if self._lamp_on:
-                    self.led.set_color("#000000")   # LEDs off until triggered
+                # LEDs stay off until SER triggers them
             case Mode.AVION:
                 log.info("▶ Avion mode — Boeing 737 cabin lighting")
                 self.avion.start()
@@ -164,8 +168,7 @@ class InterventionSystem:
                 self.circadian.start()
             case Mode.AUTISM:
                 log.info("▶ Autism mode — SER + color mitigation + audio")
-                if self._lamp_on:
-                    self.led.set_color("#000000")   # LEDs off until triggered
+                # LEDs stay off until SER triggers them
 
     # ── Lamp toggle ────────────────────────────────────────────────
 
