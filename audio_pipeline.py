@@ -127,14 +127,21 @@ class AudioStreamer:
         if self._running:
             return
         self._running = True
-        self._stream = sd.InputStream(
-            samplerate=self.capture_sr,
-            channels=self.channels,
-            dtype=cfg.DTYPE,
-            callback=self._audio_callback,
-            blocksize=1024,
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.InputStream(
+                samplerate=self.capture_sr,
+                channels=self.channels,
+                dtype=cfg.DTYPE,
+                callback=self._audio_callback,
+                blocksize=1024,
+            )
+            self._stream.start()
+        except Exception as e:
+            log.error(
+                "❌ Microphone error: Could not open audio input device. "
+                "Make sure a USB microphone is plugged in! Error: %s", e
+            )
+            raise SystemExit("Fatal: Microphone not found.") from e
 
     def stop(self):
         self._running = False
