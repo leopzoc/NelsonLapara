@@ -41,14 +41,6 @@ class Mode(Enum):
 # Ordered cycle list — the button rotates through these
 _MODE_CYCLE = [Mode.THERAPEUTIC, Mode.AVION, Mode.CIRCADIAN, Mode.AUTISM]
 
-# Feedback colour shown for 1 second when switching to each mode
-MODE_FEEDBACK_COLORS = {
-    Mode.THERAPEUTIC: cfg.MODE_COLOR_THERAPEUTIC,   # green
-    Mode.AVION:       cfg.MODE_COLOR_AVION,         # violet
-    Mode.CIRCADIAN:   cfg.MODE_COLOR_CIRCADIAN,     # orange
-    Mode.AUTISM:      cfg.MODE_COLOR_AUTISM,         # soft blue
-}
-
 # Map modes to their audio tracks (None = no audio for that mode)
 MODE_AUDIO_TRACKS = {
     Mode.THERAPEUTIC: None,
@@ -56,9 +48,6 @@ MODE_AUDIO_TRACKS = {
     Mode.CIRCADIAN:   cfg.AUDIO_TRACK_CIRCADIAN,
     Mode.AUTISM:      cfg.AUDIO_TRACK_AUTISM,
 }
-
-FEEDBACK_DURATION_SEC = 1.0
-
 
 class ButtonController:
     """
@@ -145,9 +134,6 @@ class ButtonController:
 
         log.info("Mode switch: %s → %s", old_mode.name, new_mode.name)
         
-        # Run feedback in background so we don't block the button thread
-        threading.Thread(target=self._flash_feedback, args=(new_mode,), daemon=True).start()
-
         if self._cb_mode_change:
             self._cb_mode_change(new_mode)
 
@@ -170,18 +156,6 @@ class ButtonController:
         log.info("Volume DOWN pressed")
         if self._cb_volume_down:
             self._cb_volume_down()
-
-    # ── Visual feedback ────────────────────────────────────────────
-
-    def _flash_feedback(self, mode: Mode):
-        """Flash the LED strip with the mode's colour for 1 second."""
-        if self._led is None:
-            return
-        color = MODE_FEEDBACK_COLORS.get(mode)
-        if color:
-            log.info("LED feedback: %s → %s", mode.name, color)
-            self._led.set_color(color)
-            time.sleep(FEEDBACK_DURATION_SEC)
 
     def close(self):
         for btn in self._buttons:
