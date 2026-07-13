@@ -1,9 +1,9 @@
 """
-GPIO Button Controller — multi-button system using gpiod (libgpiod2).
+GPIO Button Controller — multi-button system using gpiozero.
 
-Uses the Linux kernel GPIO character device interface (/dev/gpiochip4)
-which is completely independent from lgpio and does NOT conflict with
-adafruit-blinka's SPI driver.
+Uses gpiozero, which automatically selects the best available GPIO backend
+(e.g., lgpio) and handles debouncing and pull-ups transparently.
+This is the most robust way to handle buttons on Raspberry Pi 5.
 
 Buttons:
   • GPIO 17 — Mode cycle: THERAPEUTIC → AVION → CIRCADIAN → AUTISM → ...
@@ -19,15 +19,12 @@ After each mode press the LED strip briefly flashes the mode's colour
 from __future__ import annotations
 
 import logging
-import select
 import threading
 import time
-from datetime import timedelta
 from enum import Enum, auto
 from typing import Callable, Optional
 
-import gpiod
-from gpiod.line_settings import LineSettings
+from gpiozero import Button
 
 import config as cfg
 
@@ -65,14 +62,7 @@ FEEDBACK_DURATION_SEC = 1.0
 
 class ButtonController:
     """
-    GPIO button handler using gpiod (libgpiod2, kernel char device).
-
-    This uses /dev/gpiochip4 (RPi 5) via the Linux kernel interface,
-    which is completely separate from lgpio and cannot conflict with
-    adafruit-blinka's NeoPixel SPI driver.
-
-    A background polling thread waits for edge events and dispatches
-    to the appropriate callback.
+    GPIO button handler using gpiozero.Button.
 
     Buttons:
       • Mode cycle (GPIO 17): advances to the next mode.
@@ -81,7 +71,7 @@ class ButtonController:
       • Volume Up (GPIO 13): fires ``on_volume_up`` callback.
       • Volume Down (GPIO 19): fires ``on_volume_down`` callback.
 
-    Thread-safe; debounced via hardware (gpiod debounce_period).
+    Thread-safe; automatically debounced via gpiozero.
     """
 
     def __init__(
@@ -101,12 +91,11 @@ class ButtonController:
         self._led = led_strip
         self._current_mode: Mode = Mode.THERAPEUTIC
         self._lock = threading.Lock()
-        self._request = None
-        self._stop_event = threading.Event()
-        self._poll_thread: Optional[threading.Thread] = None
+        
+        self._buttons: list[Button] = []
 
-        # Map GPIO pin → (name, handler)
-        self._pin_handlers = {
+        # ── Setup all buttons ──────────────────────────────────────
+        buttons_config = {
             cfg.BTN_MODE_CYCLE: ("Mode Cycle", self._handle_mode),
             cfg.BTN_LAMP_TOGGLE: ("Lamp Toggle", self._handle_lamp),
             cfg.BTN_PLAY_STOP: ("Play/Stop", self._handle_play_stop),
@@ -114,44 +103,16 @@ class ButtonController:
             cfg.BTN_VOL_DOWN: ("Volume Down", self._handle_vol_down),
         }
 
-        self._requests = []
-        self._active_pin_handlers = {}
-
-        # ── Open GPIO chip ─────────────────────────────────────────
-        # RPi 5 = /dev/gpiochip4, RPi 4 = /dev/gpiochip0
-        chip_path = None
-        for path in ("/dev/gpiochip4", "/dev/gpiochip0"):
+        for pin, (name, handler) in buttons_config.items():
             try:
-                with open(path):
-                    chip_path = path
-                    break
-            except FileNotFoundError:
-                continue
-
-        if chip_path is None:
-            log.error("No GPIO chip found! Buttons will not work.")
-            return
-
-        # ── Request lines individually ─────────────────────────────
-        # We request pins one by one so that if one pin is busy,
-        # it doesn't fail the whole request.
-        for pin, (name, handler) in self._pin_handlers.items():
-            try:
-                line_config = {
-                    pin: LineSettings(
-                        direction=gpiod.line.Direction.INPUT,
-                        bias=gpiod.line.Bias.PULL_UP,
-                        edge_detection=gpiod.line.Edge.FALLING,
-                        debounce_period=timedelta(milliseconds=cfg.BTN_DEBOUNCE_MS),
-                    )
-                }
-                req = gpiod.request_lines(
-                    chip_path,
-                    consumer=f"onix-btn-{pin}",
-                    config=line_config,
+                # gpiozero automatically handles pull up/down and debouncing
+                btn = Button(
+                    pin, 
+                    pull_up=True, 
+                    bounce_time=cfg.BTN_DEBOUNCE_MS / 1000.0
                 )
-                self._requests.append(req)
-                self._active_pin_handlers[pin] = (name, handler)
+                btn.when_pressed = handler
+                self._buttons.append(btn)
                 log.info("✓ Button '%s' registered on GPIO %d", name, pin)
             except Exception as e:
                 log.error(
@@ -160,50 +121,18 @@ class ButtonController:
                     name, pin, e,
                 )
 
-        if not self._requests:
-            log.error("No buttons could be registered. Button polling disabled.")
-            return
-
-        # ── Start polling thread ───────────────────────────────────
-        self._stop_event.clear()
-        self._poll_thread = threading.Thread(
-            target=self._poll_loop, daemon=True
-        )
-        self._poll_thread.start()
+        if not self._buttons:
+            log.error("No buttons could be registered.")
 
         log.info(
-            "ButtonController ready — %d buttons, default mode: %s",
-            len(self._pin_handlers), self._current_mode.name,
+            "ButtonController ready — %d/%d buttons active, default mode: %s",
+            len(self._buttons), len(buttons_config), self._current_mode.name,
         )
 
     @property
     def current_mode(self) -> Mode:
         with self._lock:
             return self._current_mode
-
-    # ── Polling loop (background thread) ───────────────────────────
-
-    def _poll_loop(self):
-        """Poll for GPIO edge events using select() on individual line descriptors."""
-        while not self._stop_event.is_set():
-            try:
-                fd_to_req = {req.fd: req for req in self._requests}
-                # Wait up to 1 second for any edge event
-                ready, _, _ = select.select(fd_to_req.keys(), [], [], 1.0)
-                
-                for fd in ready:
-                    req = fd_to_req[fd]
-                    events = req.read_edge_events()
-                    for event in events:
-                        pin = event.line_offset
-                        if pin in self._active_pin_handlers:
-                            name, handler = self._active_pin_handlers[pin]
-                            log.info("Button '%s' pressed (GPIO %d)", name, pin)
-                            threading.Thread(target=handler, daemon=True).start()
-            except Exception as e:
-                if not self._stop_event.is_set():
-                    log.error("Poll error: %s", e)
-                    time.sleep(0.5)
 
     # ── Button handlers ────────────────────────────────────────────
 
@@ -215,24 +144,30 @@ class ButtonController:
             self._current_mode = new_mode
 
         log.info("Mode switch: %s → %s", old_mode.name, new_mode.name)
-        self._flash_feedback(new_mode)
+        
+        # Run feedback in background so we don't block the button thread
+        threading.Thread(target=self._flash_feedback, args=(new_mode,), daemon=True).start()
 
         if self._cb_mode_change:
             self._cb_mode_change(new_mode)
 
     def _handle_lamp(self):
+        log.info("Lamp toggle pressed")
         if self._cb_lamp_toggle:
             self._cb_lamp_toggle()
 
     def _handle_play_stop(self):
+        log.info("Play/Stop pressed")
         if self._cb_play_stop:
             self._cb_play_stop()
 
     def _handle_vol_up(self):
+        log.info("Volume UP pressed")
         if self._cb_volume_up:
             self._cb_volume_up()
 
     def _handle_vol_down(self):
+        log.info("Volume DOWN pressed")
         if self._cb_volume_down:
             self._cb_volume_down()
 
@@ -249,14 +184,10 @@ class ButtonController:
             time.sleep(FEEDBACK_DURATION_SEC)
 
     def close(self):
-        self._stop_event.set()
-        if self._poll_thread and self._poll_thread.is_alive():
-            self._poll_thread.join(timeout=3.0)
-        
-        for req in self._requests:
+        for btn in self._buttons:
             try:
-                req.release()
+                btn.close()
             except Exception:
                 pass
-        self._requests.clear()
+        self._buttons.clear()
         log.info("GPIO cleaned up")

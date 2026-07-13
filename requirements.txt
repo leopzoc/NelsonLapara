@@ -18,7 +18,7 @@ adafruit-blinka>=8.0
 adafruit-circuitpython-neopixel-spi>=1.0
 rpi-lgpio>=0.4
 pygame>=2.5
-gpiod>=2.0
+gpiozero>=2.0
 
 # ── Training Only (GPU machine, not RPi) ────────────────────────────
 # pip install torchaudio kagglehub tqdm onnxscript
