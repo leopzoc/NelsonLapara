@@ -50,7 +50,7 @@ class AudioPlayer:
         self._update_mixer()
 
         self._current_track: Optional[str] = None
-        self._is_paused: bool = False
+        self._is_paused: bool = True
         self._lock = threading.Lock()
 
         # ── Session timer ──────────────────────────────────────────
