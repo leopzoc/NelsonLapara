@@ -181,22 +181,12 @@ class InterventionSystem:
             elif self._active_mode == Mode.CIRCADIAN:
                 self.circadian.stop()
                 self.circadian.start()
+            elif self._active_mode == Mode.THERAPEUTIC:
+                # In therapeutic mode, ON resets the baseline LEDs to black
+                self.led.set_color("#000000")
         else:
             log.info("💡 Lamp OFF")
             self.led.off()
-
-    def _start_mode_leds_only(self, mode: Mode):
-        """Restart LED behavior for the current mode (without touching audio)."""
-        match mode:
-            case Mode.THERAPEUTIC | Mode.AUTISM:
-                self.led.set_color("#000000")  # Will light up on SER trigger
-            case Mode.AVION:
-                # Avion thread is already running, just needs to continue
-                if not self.avion.running:
-                    self.avion.start()
-            case Mode.CIRCADIAN:
-                if not self.circadian.running:
-                    self.circadian.start()
 
     # ── Audio controls ─────────────────────────────────────────────
 
