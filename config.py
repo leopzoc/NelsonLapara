@@ -83,7 +83,7 @@ MODE_COLOR_CIRCADIAN   = "#FF8C42"   # Warm orange   → Circadiano
 MODE_COLOR_AUTISM      = "#4FC3F7"   # Soft blue     → Autismo
 
 # ── Audio Player ────────────────────────────────────────────────────
-AUDIO_DEFAULT_VOLUME_DB = -12.0  # Decibels (0.0 is max, -60.0 is mute)
+AUDIO_DEFAULT_VOLUME_DB = -25.0  # Decibels (0.0 is max, -60.0 is mute)
 AUDIO_VOLUME_STEP_DB = 3.0       # Decibels increment/decrement per button press
 AUDIO_SESSION_SEC = 15 * 60   # 15 minutes — auto-pause after this duration
 
