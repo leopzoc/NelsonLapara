@@ -32,21 +32,19 @@ log = logging.getLogger(__name__)
 
 
 class Mode(Enum):
-    THERAPEUTIC = auto()    # SER + hill-climbing intervention
+    THERAPEUTIC = auto()    # SER + hill-climbing intervention (Autism)
     AVION = auto()          # Boeing 737 cabin lighting
     CIRCADIAN = auto()      # Daylight rhythm cycle
-    AUTISM = auto()         # Neuro-relaxation sensory lighting
 
 
 # Ordered cycle list — the button rotates through these
-_MODE_CYCLE = [Mode.THERAPEUTIC, Mode.AVION, Mode.CIRCADIAN, Mode.AUTISM]
+_MODE_CYCLE = [Mode.THERAPEUTIC, Mode.AVION, Mode.CIRCADIAN]
 
-# Map modes to their audio tracks (None = no audio for that mode)
+# Map modes to their audio tracks
 MODE_AUDIO_TRACKS = {
-    Mode.THERAPEUTIC: None,
+    Mode.THERAPEUTIC: cfg.AUDIO_TRACK_AUTISM,
     Mode.AVION:       cfg.AUDIO_TRACK_AVION,
     Mode.CIRCADIAN:   cfg.AUDIO_TRACK_CIRCADIAN,
-    Mode.AUTISM:      cfg.AUDIO_TRACK_AUTISM,
 }
 
 class ButtonController:

@@ -75,7 +75,7 @@ COOLDOWN_SEC = 15.0
 MODE_FADE_SEC = 1.5   # Fade-out / fade-in duration on mode switch
 
 # Modes that use the SER + ColorMitigation pipeline
-_SER_MODES = {Mode.THERAPEUTIC, Mode.AUTISM}
+_SER_MODES = {Mode.THERAPEUTIC}
 
 
 # ── Main System ────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ class InterventionSystem:
         # ── Start the LED mode (with smooth fade-in) ───────────────
         match mode:
             case Mode.THERAPEUTIC:
-                log.info("▶ Therapeutic mode — SER + color mitigation")
+                log.info("▶ Therapeutic mode — SER + color mitigation (Autism)")
                 # LEDs stay off until SER triggers them
             case Mode.AVION:
                 log.info("▶ Avion mode — Boeing 737 cabin lighting")
@@ -166,9 +166,6 @@ class InterventionSystem:
             case Mode.CIRCADIAN:
                 log.info("▶ Circadian mode — daylight rhythm cycle")
                 self.circadian.start()
-            case Mode.AUTISM:
-                log.info("▶ Autism mode — SER + color mitigation + audio")
-                # LEDs stay off until SER triggers them
 
     # ── Lamp toggle ────────────────────────────────────────────────
 
