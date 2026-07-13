@@ -100,7 +100,7 @@ class LedStrip:
             "NeoPixel SPI strip initialised: %d LEDs on SPI0 (GPIO 10), "
             "skip zone: %d–%d (%d off), %d active",
             num_leds, skip_start, skip_end,
-            len(self._inactive_indices), len(self._active_indices),
+            len(self._inactive_indices), len(self._part1_indices) + len(self._part2_indices),
         )
 
     # ── immediate set ──────────────────────────────────────────────
