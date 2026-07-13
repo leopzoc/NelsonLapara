@@ -174,8 +174,13 @@ class InterventionSystem:
         self._lamp_on = not self._lamp_on
         if self._lamp_on:
             log.info("💡 Lamp ON")
-            # Re-enter the current mode to restore LED behavior
-            self._start_mode_leds_only(self._active_mode)
+            # Restart the mode threads so they instantly paint the LEDs
+            if self._active_mode == Mode.AVION:
+                self.avion.stop()
+                self.avion.start()
+            elif self._active_mode == Mode.CIRCADIAN:
+                self.circadian.stop()
+                self.circadian.start()
         else:
             log.info("💡 Lamp OFF")
             self.led.off()
