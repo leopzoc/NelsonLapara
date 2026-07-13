@@ -288,7 +288,7 @@ class InterventionSystem:
         match action["action"]:
             case "show_color":
                 if self._lamp_on:
-                    self.led.set_color(action["color"])
+                    self.led.fade_to(action["color"], duration_sec=1.5)
                 log.info("LED strip → %s", action["color"])
 
             case "record":
@@ -317,11 +317,11 @@ class InterventionSystem:
                 log.info("✓ dB improved — continuing desaturation")
             case "rollback":
                 if self._lamp_on:
-                    self.led.set_color(result["color"])
+                    self.led.fade_to(result["color"], duration_sec=1.5)
                 log.info("↩ Rolled back → %s", result["color"])
             case "converged":
                 if self._lamp_on:
-                    self.led.set_color(result["color"])
+                    self.led.fade_to(result["color"], duration_sec=1.5)
                 log.info("● Converged at %s", result["color"])
                 self._enter_cooldown()
 
@@ -337,7 +337,7 @@ class InterventionSystem:
         if time.monotonic() >= self._cooldown_until:
             log.info("Cooldown complete — resuming listening")
             if self._lamp_on:
-                self.led.off()
+                self.led.fade_to("#000000", duration_sec=1.5)
             self._therapeutic_state = TherapeuticState.LISTENING
         else:
             time.sleep(0.5)

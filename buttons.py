@@ -19,6 +19,7 @@ After each mode press the LED strip briefly flashes the mode's colour
 from __future__ import annotations
 
 import logging
+import select
 import threading
 import time
 from datetime import timedelta
@@ -113,12 +114,14 @@ class ButtonController:
             cfg.BTN_VOL_DOWN: ("Volume Down", self._handle_vol_down),
         }
 
-        # ── Open GPIO chip and request lines ───────────────────────
+        self._requests = []
+        self._active_pin_handlers = {}
+
+        # ── Open GPIO chip ─────────────────────────────────────────
         # RPi 5 = /dev/gpiochip4, RPi 4 = /dev/gpiochip0
         chip_path = None
         for path in ("/dev/gpiochip4", "/dev/gpiochip0"):
             try:
-                # Quick test to see if chip exists
                 with open(path):
                     chip_path = path
                     break
@@ -129,36 +132,36 @@ class ButtonController:
             log.error("No GPIO chip found! Buttons will not work.")
             return
 
-        try:
-            line_config = {
-                pin: LineSettings(
-                    direction=gpiod.line.Direction.INPUT,
-                    bias=gpiod.line.Bias.PULL_UP,
-                    edge_detection=gpiod.line.Edge.FALLING,
-                    debounce_period=timedelta(
-                        milliseconds=cfg.BTN_DEBOUNCE_MS
-                    ),
+        # ── Request lines individually ─────────────────────────────
+        # We request pins one by one so that if one pin is busy,
+        # it doesn't fail the whole request.
+        for pin, (name, handler) in self._pin_handlers.items():
+            try:
+                line_config = {
+                    pin: LineSettings(
+                        direction=gpiod.line.Direction.INPUT,
+                        bias=gpiod.line.Bias.PULL_UP,
+                        edge_detection=gpiod.line.Edge.FALLING,
+                        debounce_period=timedelta(milliseconds=cfg.BTN_DEBOUNCE_MS),
+                    )
+                }
+                req = gpiod.request_lines(
+                    chip_path,
+                    consumer=f"onix-btn-{pin}",
+                    config=line_config,
                 )
-                for pin in self._pin_handlers
-            }
+                self._requests.append(req)
+                self._active_pin_handlers[pin] = (name, handler)
+                log.info("✓ Button '%s' registered on GPIO %d", name, pin)
+            except Exception as e:
+                log.error(
+                    "✗ Failed to setup '%s' on GPIO %d: %s — "
+                    "pin may be busy or reserved. Change in config.py.",
+                    name, pin, e,
+                )
 
-            self._request = gpiod.request_lines(
-                chip_path,
-                consumer="onix-buttons",
-                config=line_config,
-            )
-
-            pin_list = ", ".join(
-                f"GPIO {p} ({n})" for p, (n, _) in self._pin_handlers.items()
-            )
-            log.info(
-                "✓ All buttons registered via gpiod on %s: %s",
-                chip_path, pin_list,
-            )
-
-        except Exception as e:
-            log.error("Failed to request GPIO lines: %s", e)
-            self._request = None
+        if not self._requests:
+            log.error("No buttons could be registered. Button polling disabled.")
             return
 
         # ── Start polling thread ───────────────────────────────────
@@ -181,25 +184,22 @@ class ButtonController:
     # ── Polling loop (background thread) ───────────────────────────
 
     def _poll_loop(self):
-        """Poll for GPIO edge events and dispatch to handlers."""
+        """Poll for GPIO edge events using select() on individual line descriptors."""
         while not self._stop_event.is_set():
             try:
-                if self._request.wait_edge_events(
-                    timeout=timedelta(seconds=1)
-                ):
-                    events = self._request.read_edge_events()
+                fd_to_req = {req.fd: req for req in self._requests}
+                # Wait up to 1 second for any edge event
+                ready, _, _ = select.select(fd_to_req.keys(), [], [], 1.0)
+                
+                for fd in ready:
+                    req = fd_to_req[fd]
+                    events = req.read_edge_events()
                     for event in events:
                         pin = event.line_offset
-                        if pin in self._pin_handlers:
-                            name, handler = self._pin_handlers[pin]
-                            log.info(
-                                "Button '%s' pressed (GPIO %d)", name, pin
-                            )
-                            # Run handler in a separate thread to avoid
-                            # blocking the poll loop (flash_feedback sleeps)
-                            threading.Thread(
-                                target=handler, daemon=True
-                            ).start()
+                        if pin in self._active_pin_handlers:
+                            name, handler = self._active_pin_handlers[pin]
+                            log.info("Button '%s' pressed (GPIO %d)", name, pin)
+                            threading.Thread(target=handler, daemon=True).start()
             except Exception as e:
                 if not self._stop_event.is_set():
                     log.error("Poll error: %s", e)
@@ -252,7 +252,11 @@ class ButtonController:
         self._stop_event.set()
         if self._poll_thread and self._poll_thread.is_alive():
             self._poll_thread.join(timeout=3.0)
-        if self._request:
-            self._request.release()
-            self._request = None
+        
+        for req in self._requests:
+            try:
+                req.release()
+            except Exception:
+                pass
+        self._requests.clear()
         log.info("GPIO cleaned up")
