@@ -42,6 +42,7 @@ class AudioPlayer:
 
     def __init__(self):
         import pygame
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
         self._pygame = pygame
 
         self._volume: float = getattr(cfg, "AUDIO_DEFAULT_VOLUME", 25.0)
