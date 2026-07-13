@@ -6,6 +6,9 @@ Provides:
   • Volume up / down (step-based)
   • Track switching (per-mode)
   • Plays independently of mute state (always reproduces even at 0 volume)
+  • 15-minute session timer: auto-pauses after AUDIO_SESSION_SEC,
+    press Play to resume for another session.  Tracks loop infinitely
+    (restart from the beginning when they reach the end).
 
 Each operating mode has its own dedicated audio track:
   • Avion     → Cabin ambience (ASMR white noise)
@@ -29,10 +32,12 @@ log = logging.getLogger(__name__)
 
 class AudioPlayer:
     """
-    Thread-safe MP3 audio player.
+    Thread-safe MP3 audio player with session-based auto-pause.
 
     Wraps pygame.mixer.music for play/pause/stop and volume control.
-    Tracks always play (even at volume 0) — volume only controls output level.
+    Tracks loop infinitely but auto-pause after AUDIO_SESSION_SEC (15 min).
+    Pressing Play resumes for another 15-minute session.
+    Volume only controls output level — tracks always reproduce even at 0.
     """
 
     def __init__(self):
@@ -47,20 +52,61 @@ class AudioPlayer:
         self._is_paused: bool = False
         self._lock = threading.Lock()
 
+        # ── Session timer ──────────────────────────────────────────
+        self._session_timer: Optional[threading.Timer] = None
+
         log.info(
-            "AudioPlayer initialised — default volume: %.0f%%",
+            "AudioPlayer initialised — default volume: %.0f%%, "
+            "session duration: %ds (%.0f min)",
             self._volume * 100,
+            cfg.AUDIO_SESSION_SEC,
+            cfg.AUDIO_SESSION_SEC / 60,
         )
+
+    # ── Session timer management ───────────────────────────────────
+
+    def _start_session_timer(self):
+        """Start (or restart) the auto-pause timer."""
+        self._cancel_session_timer()
+        self._session_timer = threading.Timer(
+            cfg.AUDIO_SESSION_SEC, self._on_session_timeout
+        )
+        self._session_timer.daemon = True
+        self._session_timer.start()
+        log.info(
+            "⏱ Session timer started: auto-pause in %d min",
+            cfg.AUDIO_SESSION_SEC // 60,
+        )
+
+    def _cancel_session_timer(self):
+        """Cancel any running session timer."""
+        if self._session_timer is not None:
+            self._session_timer.cancel()
+            self._session_timer = None
+
+    def _on_session_timeout(self):
+        """Called when the 15-minute session expires — auto-pause."""
+        with self._lock:
+            if self._pygame.mixer.music.get_busy() and not self._is_paused:
+                self._pygame.mixer.music.pause()
+                self._is_paused = True
+                log.info(
+                    "⏸ Auto-paused after %d min — press Play to continue",
+                    cfg.AUDIO_SESSION_SEC // 60,
+                )
 
     # ── Track management ───────────────────────────────────────────
 
-    def play_track(self, filepath: str, loops: int = -1) -> None:
+    def play_track(self, filepath: str) -> None:
         """
-        Load and play an MP3 file.
+        Load and play an MP3 file in infinite loop.
+
+        The track loops continuously (restarts when it ends).
+        After AUDIO_SESSION_SEC (15 min) it auto-pauses.
+        Press Play to resume for another session.
 
         Args:
             filepath: Absolute path to the MP3 file.
-            loops: Number of loops (-1 = infinite loop).
         """
         with self._lock:
             if not os.path.isfile(filepath):
@@ -68,21 +114,27 @@ class AudioPlayer:
                 return
 
             try:
+                self._cancel_session_timer()
                 self._pygame.mixer.music.load(filepath)
                 self._pygame.mixer.music.set_volume(self._volume)
-                self._pygame.mixer.music.play(loops=loops)
+                self._pygame.mixer.music.play(loops=-1)  # infinite loop
                 self._current_track = filepath
                 self._is_paused = False
                 log.info(
-                    "▶ Playing: %s (vol=%.0f%%)",
+                    "▶ Playing: %s (vol=%.0f%%, loop=∞)",
                     os.path.basename(filepath),
                     self._volume * 100,
                 )
             except Exception as e:
                 log.error("Failed to play %s: %s", filepath, e)
+                return
+
+        # Start the session timer (outside the lock to avoid deadlock)
+        self._start_session_timer()
 
     def stop(self) -> None:
-        """Stop the current track entirely."""
+        """Stop the current track entirely and cancel the session timer."""
+        self._cancel_session_timer()
         with self._lock:
             self._pygame.mixer.music.stop()
             self._pygame.mixer.music.unload()
@@ -91,13 +143,21 @@ class AudioPlayer:
             log.info("⏹ Audio stopped")
 
     def toggle_play_pause(self) -> None:
-        """Toggle between play and pause."""
+        """
+        Toggle between play and pause.
+
+        When resuming (from pause or auto-pause), a new 15-minute
+        session timer starts.
+        """
+        resume = False
         with self._lock:
             if self._is_paused:
                 self._pygame.mixer.music.unpause()
                 self._is_paused = False
-                log.info("▶ Audio resumed")
+                resume = True
+                log.info("▶ Audio resumed — new 15-min session")
             elif self._pygame.mixer.music.get_busy():
+                self._cancel_session_timer()
                 self._pygame.mixer.music.pause()
                 self._is_paused = True
                 log.info("⏸ Audio paused")
@@ -106,7 +166,12 @@ class AudioPlayer:
                 if self._current_track:
                     self._pygame.mixer.music.play(loops=-1)
                     self._is_paused = False
-                    log.info("▶ Audio restarted")
+                    resume = True
+                    log.info("▶ Audio restarted — new 15-min session")
+
+        # Restart session timer on resume (outside lock)
+        if resume:
+            self._start_session_timer()
 
     # ── Volume control ─────────────────────────────────────────────
 
@@ -153,7 +218,8 @@ class AudioPlayer:
     # ── Cleanup ────────────────────────────────────────────────────
 
     def close(self) -> None:
-        """Stop playback and quit the mixer."""
+        """Stop playback, cancel timers, and quit the mixer."""
+        self._cancel_session_timer()
         try:
             self._pygame.mixer.music.stop()
             self._pygame.mixer.quit()

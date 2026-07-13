@@ -96,28 +96,45 @@ class ButtonController:
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
+        # Release any stale GPIO claims from previous crashed runs
+        try:
+            GPIO.cleanup()
+            GPIO.setmode(GPIO.BCM)
+        except Exception:
+            pass
+
         # ── Setup all buttons ──────────────────────────────────────
         buttons = {
-            cfg.BTN_MODE_CYCLE: self._on_mode_press,
-            cfg.BTN_LAMP_TOGGLE: self._on_lamp_press,
-            cfg.BTN_PLAY_STOP: self._on_play_stop_press,
-            cfg.BTN_VOL_UP: self._on_vol_up_press,
-            cfg.BTN_VOL_DOWN: self._on_vol_down_press,
+            cfg.BTN_MODE_CYCLE: ("Mode Cycle", self._on_mode_press),
+            cfg.BTN_LAMP_TOGGLE: ("Lamp Toggle", self._on_lamp_press),
+            cfg.BTN_PLAY_STOP: ("Play/Stop", self._on_play_stop_press),
+            cfg.BTN_VOL_UP: ("Volume Up", self._on_vol_up_press),
+            cfg.BTN_VOL_DOWN: ("Volume Down", self._on_vol_down_press),
         }
 
-        for pin, callback in buttons.items():
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.add_event_detect(
-                pin,
-                GPIO.FALLING,
-                callback=callback,
-                bouncetime=cfg.BTN_DEBOUNCE_MS,
-            )
-            log.info("Button registered on GPIO %d", pin)
+        registered = 0
+        for pin, (name, callback) in buttons.items():
+            try:
+                GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                GPIO.add_event_detect(
+                    pin,
+                    GPIO.FALLING,
+                    callback=callback,
+                    bouncetime=cfg.BTN_DEBOUNCE_MS,
+                )
+                registered += 1
+                log.info("✓ Button '%s' registered on GPIO %d", name, pin)
+            except Exception as e:
+                log.error(
+                    "✗ Failed to setup '%s' on GPIO %d: %s — "
+                    "pin may be busy or reserved by the system. "
+                    "Change the pin in config.py if needed.",
+                    name, pin, e,
+                )
 
         log.info(
-            "ButtonController ready — 5 buttons, default mode: %s",
-            self._current_mode.name,
+            "ButtonController ready — %d/%d buttons active, default mode: %s",
+            registered, len(buttons), self._current_mode.name,
         )
 
     @property

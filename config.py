@@ -84,6 +84,7 @@ MODE_COLOR_AUTISM      = "#4FC3F7"   # Soft blue     → Autismo
 # ── Audio Player ────────────────────────────────────────────────────
 AUDIO_DEFAULT_VOLUME = 0.5    # 0.0 – 1.0 (50%)
 AUDIO_VOLUME_STEP = 0.10      # Volume increment/decrement per button press
+AUDIO_SESSION_SEC = 15 * 60   # 15 minutes — auto-pause after this duration
 
 # MP3 tracks per mode (only modes with audio)
 AUDIO_TRACK_AVION = os.path.join(
