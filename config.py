@@ -64,7 +64,7 @@ LED_INVERT = False            # Invert signal (for level-shifter)
 LED_CHANNEL = 0               # PWM channel
 
 # Dead LED zone — these LEDs are skipped (kept off)
-LED_SKIP_START = 24           # First LED to skip (inclusive, index 22 = 23rd LED)
+LED_SKIP_START = 20          # First LED to skip (inclusive, index 22 = 23rd LED)
 LED_SKIP_END = 38            # Last LED to skip (inclusive, index 36 = 37th LED)
                               # → LEDs 23..37 always off, all others active
 
@@ -83,8 +83,9 @@ MODE_COLOR_CIRCADIAN   = "#FF8C42"   # Warm orange   → Circadiano
 MODE_COLOR_AUTISM      = "#4FC3F7"   # Soft blue     → Autismo
 
 # ── Audio Player ────────────────────────────────────────────────────
-AUDIO_DEFAULT_VOLUME_DB = -25.0  # Decibels (0.0 is max, -60.0 is mute)
-AUDIO_VOLUME_STEP_DB = 3.0       # Decibels increment/decrement per button press
+AUDIO_MAX_VOLUME = 50.0       # Maximum volume level
+AUDIO_DEFAULT_VOLUME = 25.0   # Starting volume level
+AUDIO_VOLUME_STEP = 5.0       # Increment/decrement per button press
 AUDIO_SESSION_SEC = 15 * 60   # 15 minutes — auto-pause after this duration
 
 # MP3 tracks per mode (only modes with audio)
