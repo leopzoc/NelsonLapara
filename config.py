@@ -64,8 +64,8 @@ LED_INVERT = False            # Invert signal (for level-shifter)
 LED_CHANNEL = 0               # PWM channel
 
 # Dead LED zone — these LEDs are skipped (kept off)
-LED_SKIP_START = 22           # First LED to skip (inclusive, index 22 = 23rd LED)
-LED_SKIP_END = 36             # Last LED to skip (inclusive, index 36 = 37th LED)
+LED_SKIP_START = 24           # First LED to skip (inclusive, index 22 = 23rd LED)
+LED_SKIP_END = 38            # Last LED to skip (inclusive, index 36 = 37th LED)
                               # → LEDs 23..37 always off, all others active
 
 # ── GPIO Buttons ────────────────────────────────────────────────────
