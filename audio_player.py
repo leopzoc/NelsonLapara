@@ -50,7 +50,7 @@ class AudioPlayer:
         self._update_mixer()
 
         self._current_track: Optional[str] = None
-        self._is_paused: bool = True
+        self._is_paused: bool = False
         self._lock = threading.Lock()
 
         # ── Session timer ──────────────────────────────────────────
@@ -120,12 +120,18 @@ class AudioPlayer:
             try:
                 self._cancel_session_timer()
                 self._pygame.mixer.music.load(filepath)
-                self._update_mixer()
+                
+                # Mute temporarily to avoid any audio pop before pausing
+                self._pygame.mixer.music.set_volume(0.0)
                 self._pygame.mixer.music.play(loops=-1)  # infinite loop
+                self._pygame.mixer.music.pause()
+                self._update_mixer()  # Restore actual volume
+                
                 self._current_track = filepath
-                self._is_paused = False
+                self._is_paused = True
+
                 log.info(
-                    "▶ Playing: %s (vol=%.0f/%.0f, loop=∞)",
+                    "⏸ Loaded & Paused: %s (vol=%.0f/%.0f) — press Play to start",
                     os.path.basename(filepath),
                     self._volume, self._max_volume,
                 )
@@ -133,8 +139,7 @@ class AudioPlayer:
                 log.error("Failed to play %s: %s", filepath, e)
                 return
 
-        # Start the session timer (outside the lock to avoid deadlock)
-        self._start_session_timer()
+        # Session timer will start when the user explicitly presses Play
 
     def stop(self) -> None:
         """Stop the current track entirely and cancel the session timer."""
