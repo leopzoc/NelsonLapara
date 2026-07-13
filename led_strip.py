@@ -87,13 +87,11 @@ class LedStrip:
         # LEDs in the skip range are kept off; all others are active.
         skip_start = cfg.LED_SKIP_START
         skip_end = cfg.LED_SKIP_END
-        self._active_indices = [
-            i for i in range(num_leds)
-            if not (skip_start <= i <= skip_end)
-        ]
+        self._part1_indices = list(range(0, skip_start))
+        self._part2_indices = list(range(skip_end + 1, num_leds))
         self._inactive_indices = list(range(skip_start, skip_end + 1))
 
-        self._current_rgb: Tuple[int, int, int] = (0, 0, 0)
+        self._current_rgb: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = ((0, 0, 0), (0, 0, 0))
         self._lock = threading.Lock()
         self._fade_thread: Optional[threading.Thread] = None
         self._fade_cancel = threading.Event()
@@ -107,15 +105,20 @@ class LedStrip:
 
     # ── immediate set ──────────────────────────────────────────────
 
-    def set_color(self, hex_color: str) -> None:
-        """Instantly fill the entire strip with a solid color."""
-        rgb = hex_to_rgb(hex_color)
+    def set_color(self, hex_color: str | list[str]) -> None:
+        """Instantly fill the entire strip with a solid color, or a pair of colors."""
+        if isinstance(hex_color, list):
+            rgb1 = hex_to_rgb(hex_color[0])
+            rgb2 = hex_to_rgb(hex_color[1])
+        else:
+            rgb1 = rgb2 = hex_to_rgb(hex_color)
+            
         self._cancel_fade()
-        self._fill_rgb(rgb)
+        self._fill_dual_rgb(rgb1, rgb2)
 
     def set_color_rgb(self, r: int, g: int, b: int) -> None:
         self._cancel_fade()
-        self._fill_rgb((r, g, b))
+        self._fill_dual_rgb((r, g, b), (r, g, b))
 
     def off(self) -> None:
         """Turn off all LEDs."""
@@ -125,7 +128,7 @@ class LedStrip:
 
     def fade_to(
         self,
-        hex_color: str,
+        hex_color: str | list[str],
         duration_sec: float = 3.0,
         steps: int = 60,
     ) -> None:
@@ -133,21 +136,28 @@ class LedStrip:
         Smoothly cross-fade from the current color to *hex_color*.
         Runs in a background thread; a new call cancels any ongoing fade.
         """
-        target_rgb = hex_to_rgb(hex_color)
+        if isinstance(hex_color, list):
+            target_rgb1 = hex_to_rgb(hex_color[0])
+            target_rgb2 = hex_to_rgb(hex_color[1])
+        else:
+            target_rgb1 = target_rgb2 = hex_to_rgb(hex_color)
+
         self._cancel_fade()
         self._fade_cancel.clear()
 
         self._fade_thread = threading.Thread(
             target=self._fade_worker,
-            args=(self._current_rgb, target_rgb, duration_sec, steps),
+            args=(self._current_rgb[0], self._current_rgb[1], target_rgb1, target_rgb2, duration_sec, steps),
             daemon=True,
         )
         self._fade_thread.start()
 
     def _fade_worker(
         self,
-        start: Tuple[int, int, int],
-        end: Tuple[int, int, int],
+        start1: Tuple[int, int, int],
+        start2: Tuple[int, int, int],
+        end1: Tuple[int, int, int],
+        end2: Tuple[int, int, int],
         duration: float,
         steps: int,
     ):
@@ -156,8 +166,9 @@ class LedStrip:
             if self._fade_cancel.is_set():
                 return
             t = i / steps
-            rgb = lerp_color(start, end, t)
-            self._fill_rgb(rgb)
+            rgb1 = lerp_color(start1, end1, t)
+            rgb2 = lerp_color(start2, end2, t)
+            self._fill_dual_rgb(rgb1, rgb2)
             time.sleep(step_delay)
 
     def _cancel_fade(self):
@@ -167,15 +178,17 @@ class LedStrip:
 
     # ── low-level ──────────────────────────────────────────────────
 
-    def _fill_rgb(self, rgb: Tuple[int, int, int]) -> None:
-        """Fill only the active LED zones with *rgb*; middle stays off."""
+    def _fill_dual_rgb(self, rgb1: Tuple[int, int, int], rgb2: Tuple[int, int, int]) -> None:
+        """Fill part1 with rgb1 and part2 with rgb2; middle stays off."""
         with self._lock:
-            for i in self._active_indices:
-                self.strip[i] = rgb
+            for i in self._part1_indices:
+                self.strip[i] = rgb1
+            for i in self._part2_indices:
+                self.strip[i] = rgb2
             for i in self._inactive_indices:
                 self.strip[i] = (0, 0, 0)
             self.strip.show()
-            self._current_rgb = rgb
+            self._current_rgb = (rgb1, rgb2)
 
     def set_brightness(self, brightness: int) -> None:
         """Set global brightness (0–255)."""

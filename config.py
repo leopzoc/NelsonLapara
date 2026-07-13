@@ -121,15 +121,14 @@ MAX_ROLLBACKS = 3             # Consecutive worsening before full reset
 # ── Avion Mode — Boeing 737 Cabin Lighting Palette ─────────────────
 # Inspired by Boeing Sky Interior LED ceiling wash colors
 AVION_COLORS = [
-    {"name": "boarding",     "hex": "#FFD580", "duration": 0},    # Warm amber
-    {"name": "takeoff",      "hex": "#C4A8FF", "duration": 0},    # Soft violet
-    {"name": "cruise_day",   "hex": "#87CEEB", "duration": 0},    # Sky blue
-    {"name": "cruise_night", "hex": "#1A1A4E", "duration": 0},    # Deep indigo
-    {"name": "meal",         "hex": "#FFE4B5", "duration": 0},    # Warm white
-    {"name": "landing",      "hex": "#FFB347", "duration": 0},    # Sunset orange
+    {"name": "boarding",     "hex": "#FFD580", "duration": 60},    # Warm amber (1 min)
+    {"name": "takeoff",      "hex": "#C4A8FF", "duration": 30},    # Soft violet (30 sec)
+    {"name": "cruise_day",   "hex": "#87CEEB", "duration": 120},   # Sky blue (2 min)
+    {"name": "cruise_night", "hex": ["#FF8C42", "#1A1A4E"], "duration": 300}, # Orange & Deep Indigo (5 min)
+    {"name": "meal",         "hex": "#FFE4B5", "duration": 60},    # Warm white (1 min)
+    {"name": "landing",      "hex": "#FFB347", "duration": 30},    # Sunset orange (30 sec)
 ]
 AVION_TRANSITION_SEC = 3.0    # Cross-fade duration between phases
-AVION_HOLD_SEC = 30.0         # Hold each phase before transitioning
 
 # ── Circadian Mode — Daylight Rhythm Cycle ─────────────────────────
 # Colors follow the natural light temperature across the day

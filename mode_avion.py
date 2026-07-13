@@ -65,10 +65,10 @@ class AvionMode:
             next_idx = (idx + 1) % len(colors)
             next_color = colors[next_idx]
 
-            log.info("Avion phase: %s → %s", current["name"], next_color["name"])
+            log.info("Avion phase: %s (%ds) → %s", current["name"], current["duration"], next_color["name"])
 
             # Hold current phase
-            if self._wait(cfg.AVION_HOLD_SEC):
+            if self._wait(current["duration"]):
                 return
 
             # Cross-fade to next
