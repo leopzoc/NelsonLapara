@@ -124,7 +124,7 @@ AVION_COLORS = [
     {"name": "boarding",     "hex": "#FFD580", "duration": 60},    # Warm amber (1 min)
     {"name": "takeoff",      "hex": "#C4A8FF", "duration": 30},    # Soft violet (30 sec)
     {"name": "cruise_day",   "hex": "#87CEEB", "duration": 120},   # Sky blue (2 min)
-    {"name": "cruise_night", "hex": ["#FF8C42", "#1A1A4E"], "duration": 300}, # Orange & Deep Indigo (5 min)
+    {"name": "cruise_night", "hex": ["#1A1A4E", "#FF8C42"], "duration": 300}, # Orange & Deep Indigo (5 min) 
     {"name": "meal",         "hex": "#FFE4B5", "duration": 60},    # Warm white (1 min)
     {"name": "landing",      "hex": "#FFB347", "duration": 30},    # Sunset orange (30 sec)
 ]
